@@ -65,15 +65,8 @@ starship-multi-config [OPTIONS] [CONFIGS]...
 
 ### Options
 
-| Option              | Description                                          |
-| ------------------- | ---------------------------------------------------- |
-| `--preset <NAME>`   | Starship preset name to use as the base config layer |
-| `--starship <PATH>` | Override the path to the `starship` binary           |
-| `-h, --help`        | Print help                                           |
-| `-V, --version`     | Print version                                        |
-
-### Environment variables
-
-| Variable   | Description                                                       |
-| ---------- | ----------------------------------------------------------------- |
-| `STARSHIP` | Override the path to the `starship` binary (same as `--starship`) |
+| Option            | Description                                          |
+| ----------------- | ---------------------------------------------------- |
+| `--preset <NAME>` | Starship preset name to use as the base config layer |
+| `-h, --help`      | Print help                                           |
+| `-V, --version`   | Print version                                        |

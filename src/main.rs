@@ -1,6 +1,6 @@
 use std::{
     collections::hash_map::DefaultHasher,
-    env, fs,
+    fs,
     hash::{Hash, Hasher},
     path::{Path, PathBuf},
     process::Command,
@@ -20,10 +20,6 @@ struct Cli {
     /// Runs `starship preset <NAME>` to fetch the preset TOML.
     #[arg(long)]
     preset: Option<String>,
-
-    /// Override the path to the `starship` binary (used for resolving presets).
-    #[arg(long, env = "STARSHIP")]
-    starship: Option<PathBuf>,
 
     /// TOML config files to merge (left-to-right, later files override).
     #[arg(required_unless_present = "preset")]
@@ -45,7 +41,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         .preset
         .as_deref()
         .map(|name| {
-            let bin = resolve_starship_bin(cli.starship.as_deref())?;
+            let bin = which::which("starship").map_err(|e| format!("starship: {e}"))?;
             resolve_preset(&bin, name)
         })
         .transpose()?;
@@ -99,18 +95,6 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
 
     println!("{}", cache_file.display());
     Ok(())
-}
-
-fn resolve_starship_bin(
-    override_path: Option<&Path>,
-) -> Result<PathBuf, Box<dyn std::error::Error>> {
-    match override_path {
-        Some(p) => Ok(p.to_path_buf()),
-        None => {
-            let bin = env::var_os("STARSHIP").unwrap_or_else(|| "starship".into());
-            which::which(&bin).map_err(|e| format!("{}: {e}", bin.to_string_lossy()).into())
-        }
-    }
 }
 
 fn resolve_preset(bin_path: &Path, name: &str) -> Result<PathBuf, Box<dyn std::error::Error>> {

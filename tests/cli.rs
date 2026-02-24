@@ -1,3 +1,4 @@
+use std::env;
 use std::fs;
 use std::os::unix::fs::PermissionsExt;
 use std::path::Path;
@@ -14,10 +15,11 @@ fn write_toml(dir: &TempDir, name: &str, content: &str) -> String {
     path.to_str().unwrap().to_string()
 }
 
-/// Creates a starship stub that handles `preset <name>` calls by outputting
-/// the given TOML content.
+/// Creates a fake `starship` binary in the given directory that handles
+/// `preset <name>` calls by outputting the given TOML content.
+/// Returns the directory path, suitable for prepending to PATH.
 fn write_starship_stub(dir: &TempDir, preset_toml: &str) -> String {
-    let path = dir.path().join("starship-stub");
+    let path = dir.path().join("starship");
     let preset_file = dir.path().join("preset-content.toml");
     fs::write(&preset_file, preset_toml).unwrap();
     let script = format!(
@@ -26,7 +28,9 @@ fn write_starship_stub(dir: &TempDir, preset_toml: &str) -> String {
     );
     fs::write(&path, script).unwrap();
     fs::set_permissions(&path, fs::Permissions::from_mode(0o755)).unwrap();
-    path.to_str().unwrap().to_string()
+    let stub_dir = dir.path().to_str().unwrap().to_string();
+    let system_path = env::var("PATH").unwrap_or_default();
+    format!("{stub_dir}:{system_path}")
 }
 
 #[test]
@@ -129,7 +133,8 @@ success_symbol = "[→](bold cyan)"
     );
 
     let output = cmd()
-        .args(["--preset", "test-preset", "--starship", &stub])
+        .env("PATH", &stub)
+        .args(["--preset", "test-preset"])
         .assert()
         .success()
         .get_output()
@@ -174,7 +179,8 @@ disabled = true
     );
 
     let output = cmd()
-        .args(["--preset", "test-preset", "--starship", &stub, &user_config])
+        .env("PATH", &stub)
+        .args(["--preset", "test-preset", &user_config])
         .assert()
         .success()
         .get_output()
