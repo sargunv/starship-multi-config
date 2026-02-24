@@ -1,9 +1,11 @@
 use std::{
     collections::hash_map::DefaultHasher,
-    env, fs,
+    env,
+    ffi::OsString,
+    fs,
     hash::{Hash, Hasher},
     os::unix::process::CommandExt,
-    path::PathBuf,
+    path::{Path, PathBuf},
     process::Command,
 };
 
@@ -15,39 +17,54 @@ fn main() {
 }
 
 fn run() -> Result<(), Box<dyn std::error::Error>> {
-    // Unset or empty: let starship use its default config
-    // Single path: pass through as-is
-    // Multiple paths: merge them
-    let config_var = match env::var_os("STARSHIP_CONFIG") {
-        None => return exec_starship(None),
-        Some(v) if v.is_empty() => return exec_starship(None),
-        Some(v) => v,
+    let preset_var = env::var("STARSHIP_PRESET").ok().filter(|v| !v.is_empty());
+    let config_var = env::var_os("STARSHIP_CONFIG");
+
+    // Fast path: no preset and no config (or empty) -> let starship use its default
+    if preset_var.is_none() {
+        match &config_var {
+            None => return exec_starship(None),
+            Some(v) if v.is_empty() => return exec_starship(None),
+            _ => {}
+        }
+    }
+
+    // Resolve preset config if STARSHIP_PRESET is set
+    let preset_path = preset_var.as_deref().map(resolve_preset).transpose()?;
+
+    // Expand globs from STARSHIP_CONFIG, sort matches within each segment, and flatten
+    let mut paths: Vec<PathBuf> = match &config_var {
+        Some(v) if !v.is_empty() => {
+            let expanded = env::split_paths(v)
+                .filter(|p| !p.as_os_str().is_empty())
+                .map(expand_tilde::expand_tilde_owned)
+                .collect::<Result<Vec<_>, _>>()?;
+            let mut result = Vec::new();
+            for p in expanded {
+                let pattern = p.to_string_lossy();
+                let mut matches: Vec<PathBuf> = glob::glob(&pattern)?
+                    .collect::<Result<Vec<_>, _>>()
+                    .map_err(|e| path_err(e.path(), e.error()))?;
+                matches.sort();
+                result.extend(matches);
+            }
+            result
+        }
+        _ => vec![],
     };
 
-    // Expand globs, sort matches within each segment, and flatten
-    let paths: Vec<PathBuf> = env::split_paths(&config_var)
-        .filter(|p| !p.as_os_str().is_empty())
-        .map(expand_tilde::expand_tilde_owned)
-        .collect::<Result<Vec<_>, _>>()?
-        .into_iter()
-        .flat_map(|p| {
-            let pattern = p.to_string_lossy();
-            let mut matches: Vec<PathBuf> = glob::glob(&pattern)
-                .into_iter()
-                .flatten()
-                .filter_map(Result::ok)
-                .collect();
-            matches.sort();
-            matches
-        })
-        .collect();
+    // Prepend the preset as the base layer (user configs override it)
+    if let Some(preset) = preset_path {
+        paths.insert(0, preset);
+    }
 
-    match paths.len() {
-        // No matches: preserve original value and let starship handle it
-        0 => return exec_starship(Some(config_var.into())),
-        // Single match: pass through as-is
-        1 => return exec_starship(paths.into_iter().next()),
-        _ => {}
+    if paths.is_empty() {
+        // No matches and no preset: preserve original STARSHIP_CONFIG and let starship handle it
+        return exec_starship(config_var.map(PathBuf::from));
+    }
+    if paths.len() == 1 {
+        // Single source: pass through as-is
+        return exec_starship(paths.into_iter().next());
     }
 
     // Hash paths + mtimes to derive a cache key that invalidates when any source changes
@@ -63,10 +80,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         format!("{:x}", h.finish())
     };
 
-    let dir = dirs::cache_dir()
-        .ok_or("could not determine cache directory")?
-        .join("starship-multi-config");
-    let cache_file = dir.join(format!("{hash}.toml"));
+    let cache_file = cache_dir()?.join(format!("{hash}.toml"));
 
     // Re-merge only if no cached file exists for this paths+mtimes combination
     if !cache_file.exists() {
@@ -79,25 +93,77 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
             merge(&mut merged, &table);
         }
 
-        // Write cache atomically via temp file + rename
-        fs::create_dir_all(&dir)?;
-        let tmp = dir.join(format!("{hash}.tmp"));
-        fs::write(&tmp, toml::to_string(&merged)?)?;
-        fs::rename(&tmp, &cache_file)?;
+        write_cache(&cache_file, toml::to_string(&merged)?.as_bytes())?;
     }
 
     exec_starship(Some(cache_file))
 }
 
+fn resolve_preset(name: &str) -> Result<PathBuf, Box<dyn std::error::Error>> {
+    let bin = starship_bin();
+    let bin_path = which::which(&bin).map_err(|e| format!("{}: {e}", bin.to_string_lossy()))?;
+    let bin_mtime = fs::metadata(&bin_path)
+        .and_then(|m| m.modified())
+        .map_err(|e| path_err(&bin_path, e))?;
+
+    let hash = {
+        let mut h = DefaultHasher::new();
+        name.hash(&mut h);
+        bin_path.hash(&mut h);
+        bin_mtime.hash(&mut h);
+        format!("{:x}", h.finish())
+    };
+
+    let cache_file = cache_dir()?.join(format!("preset-{hash}.toml"));
+
+    if !cache_file.exists() {
+        let output = Command::new(&bin_path)
+            .args(["preset", name])
+            .output()
+            .map_err(|e| format!("{}: {e}", bin_path.display()))?;
+
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            return Err(format!("starship preset {name}: {}", stderr.trim()).into());
+        }
+
+        write_cache(&cache_file, &output.stdout)?;
+    }
+
+    Ok(cache_file)
+}
+
+fn starship_bin() -> OsString {
+    env::var_os("STARSHIP").unwrap_or_else(|| "starship".into())
+}
+
+fn cache_dir() -> Result<PathBuf, Box<dyn std::error::Error>> {
+    Ok(dirs::cache_dir()
+        .ok_or("could not determine cache directory")?
+        .join("starship-multi-config"))
+}
+
+fn write_cache(path: &Path, content: &[u8]) -> Result<(), Box<dyn std::error::Error>> {
+    let dir = path.parent().ok_or("cache file has no parent directory")?;
+    fs::create_dir_all(dir)?;
+    let tmp = tempfile::NamedTempFile::new_in(dir)?;
+    fs::write(tmp.path(), content)?;
+    tmp.persist(path)?;
+    Ok(())
+}
+
 fn exec_starship(config: Option<PathBuf>) -> Result<(), Box<dyn std::error::Error>> {
-    let bin = env::var("STARSHIP").unwrap_or_else(|_| "starship".to_string());
+    let bin = starship_bin();
     let mut cmd = Command::new(&bin);
     cmd.args(env::args_os().skip(1));
-    if let Some(path) = config {
-        cmd.env("STARSHIP_CONFIG", path);
-    }
+    match config {
+        Some(path) => cmd.env("STARSHIP_CONFIG", path),
+        None => cmd.env_remove("STARSHIP_CONFIG"),
+    };
+    cmd.env_remove("STARSHIP_PRESET");
+    cmd.env_remove("STARSHIP");
     let err = cmd.exec();
-    Err(format!("exec {bin}: {err}").into())
+    Err(format!("{}: {err}", bin.to_string_lossy()).into())
 }
 
 fn path_err(path: &std::path::Path, e: impl std::fmt::Display) -> String {

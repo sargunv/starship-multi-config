@@ -1,0 +1,9 @@
+---
+source: tests/cli.rs
+expression: cached_toml
+---
+
+format = "$all"
+
+[character]
+success_symbol = "[→](bold cyan)"

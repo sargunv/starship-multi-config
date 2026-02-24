@@ -33,8 +33,9 @@ All arguments pass through to `starship` transparently.
 
 ### Single path or unset
 
-If `STARSHIP_CONFIG` contains no `:` separator, or is unset/empty,
-`starship-multi-config` passes through to `starship` with zero overhead.
+If `STARSHIP_PRESET` is not set, and `STARSHIP_CONFIG` contains no `:` separator
+or is unset/empty, `starship-multi-config` passes through to `starship` with
+zero overhead.
 
 ## Caching
 
@@ -45,11 +46,27 @@ their mtimes, so editing any source config automatically invalidates the cache.
 Cache location: `$XDG_CACHE_HOME/starship-multi-config/` on Linux,
 `~/Library/Caches/starship-multi-config/` on macOS.
 
+## Presets
+
+Set `STARSHIP_PRESET` to automatically use a
+[Starship preset](https://starship.rs/presets/) as the base layer of your
+config. Your own config files override the preset values:
+
+```bash
+export STARSHIP_PRESET="gruvbox-rainbow"
+export STARSHIP_CONFIG="$HOME/.config/starship/overrides.toml"
+eval "$(starship-multi-config init zsh)"
+```
+
+The preset TOML is fetched via `starship preset <name>` and cached until the
+`starship` binary is updated.
+
 ## Environment variables
 
 | Variable          | Description                                           |
 | ----------------- | ----------------------------------------------------- |
 | `STARSHIP_CONFIG` | Colon-separated list of TOML config paths or globs    |
+| `STARSHIP_PRESET` | Starship preset name to use as the base config layer  |
 | `STARSHIP`        | Override the path to the `starship` binary (optional) |
 
 ## Installation

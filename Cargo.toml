@@ -21,7 +21,9 @@ strip = true
 dirs = "6.0.0"
 expand-tilde = "0.6.1"
 glob = "0.3"
+tempfile = "3"
 toml = "1"
+which = "8"
 
 [dev-dependencies]
 assert_cmd = "2"

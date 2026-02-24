@@ -1,0 +1,15 @@
+---
+source: tests/cli.rs
+expression: cached_toml
+---
+format = "$all"
+
+[character]
+error_symbol = "[→](bold red)"
+success_symbol = "[>](bold green)"
+
+[git_branch]
+format = "[$branch]($style) "
+
+[package]
+disabled = true
