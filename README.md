@@ -1,7 +1,5 @@
 # starship-multi-config
 
-[![license](https://img.shields.io/github/license/sargunv/starship-multi-config)](LICENSE)
-
 A tiny wrapper for [Starship](https://github.com/starship/starship) that
 deep-merges multiple TOML config files. Set `STARSHIP_CONFIG` to a
 colon-separated list of paths, and `starship-multi-config` will merge them
