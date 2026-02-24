@@ -16,10 +16,10 @@ use clap::Parser;
 #[derive(Parser)]
 #[command(version)]
 struct Cli {
-    /// Use a Starship preset as the base config layer.
-    /// Runs `starship preset <NAME>` to fetch the preset TOML.
+    /// Use Starship presets as base config layers (repeatable, left-to-right).
+    /// Runs `starship preset <NAME>` to fetch each preset's TOML.
     #[arg(long)]
-    preset: Option<String>,
+    preset: Vec<String>,
 
     /// TOML config files to merge (left-to-right, later files override).
     #[arg(required_unless_present = "preset")]
@@ -36,21 +36,13 @@ fn main() {
 fn run() -> Result<(), Box<dyn std::error::Error>> {
     let cli = Cli::parse();
 
-    // Resolve preset config if --preset is set
-    let preset_path = cli
-        .preset
-        .as_deref()
-        .map(|name| {
-            let bin = which::which("starship").map_err(|e| format!("starship: {e}"))?;
-            resolve_preset(&bin, name)
-        })
-        .transpose()?;
-
+    // Resolve preset configs if --preset is set
     let mut paths: Vec<PathBuf> = Vec::new();
-
-    // Prepend the preset as the base layer (user configs override it)
-    if let Some(preset) = preset_path {
-        paths.push(preset);
+    if !cli.preset.is_empty() {
+        let bin = which::which("starship").map_err(|e| format!("starship: {e}"))?;
+        for name in &cli.preset {
+            paths.push(resolve_preset(&bin, name)?);
+        }
     }
 
     paths.extend(cli.configs);

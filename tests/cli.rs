@@ -16,15 +16,18 @@ fn write_toml(dir: &TempDir, name: &str, content: &str) -> String {
 }
 
 /// Creates a fake `starship` binary in the given directory that handles
-/// `preset <name>` calls by outputting the given TOML content.
-/// Returns the directory path, suitable for prepending to PATH.
-fn write_starship_stub(dir: &TempDir, preset_toml: &str) -> String {
+/// `preset <name>` calls by outputting TOML content from a matching file.
+/// Returns a PATH string with the stub directory prepended.
+fn write_starship_stub(dir: &TempDir, presets: &[(&str, &str)]) -> String {
+    let presets_dir = dir.path().join("presets");
+    fs::create_dir_all(&presets_dir).unwrap();
+    for (name, content) in presets {
+        fs::write(presets_dir.join(format!("{name}.toml")), content).unwrap();
+    }
     let path = dir.path().join("starship");
-    let preset_file = dir.path().join("preset-content.toml");
-    fs::write(&preset_file, preset_toml).unwrap();
     let script = format!(
-        "#!/bin/sh\nif [ \"$1\" = \"preset\" ]; then\n  cat \"{}\"\nelse\n  echo \"unexpected args: $@\" >&2\n  exit 1\nfi\n",
-        preset_file.display()
+        "#!/bin/sh\nif [ \"$1\" = \"preset\" ]; then\n  cat \"{}/\"\"$2\".toml\nelse\n  echo \"unexpected args: $@\" >&2\n  exit 1\nfi\n",
+        presets_dir.display()
     );
     fs::write(&path, script).unwrap();
     fs::set_permissions(&path, fs::Permissions::from_mode(0o755)).unwrap();
@@ -124,12 +127,15 @@ fn preset_only() {
     let dir = TempDir::new().unwrap();
     let stub = write_starship_stub(
         &dir,
-        r#"
+        &[(
+            "test-preset",
+            r#"
 format = "$all"
 
 [character]
 success_symbol = "[→](bold cyan)"
 "#,
+        )],
     );
 
     let output = cmd()
@@ -154,7 +160,9 @@ fn preset_with_user_config() {
     let dir = TempDir::new().unwrap();
     let stub = write_starship_stub(
         &dir,
-        r#"
+        &[(
+            "test-preset",
+            r#"
 format = "$all"
 
 [character]
@@ -164,6 +172,7 @@ error_symbol = "[→](bold red)"
 [git_branch]
 format = "[$branch]($style) "
 "#,
+        )],
     );
 
     let user_config = write_toml(
@@ -191,6 +200,52 @@ disabled = true
     let cache_path = stdout.trim();
 
     // Merged: preset is the base, user config overrides
+    let cached_toml = fs::read_to_string(cache_path).unwrap();
+    insta::assert_snapshot!(cached_toml);
+}
+
+#[test]
+fn multiple_presets() {
+    let dir = TempDir::new().unwrap();
+    let stub = write_starship_stub(
+        &dir,
+        &[
+            (
+                "base-theme",
+                r#"
+format = "$all"
+
+[character]
+success_symbol = "[→](bold cyan)"
+error_symbol = "[→](bold red)"
+"#,
+            ),
+            (
+                "nerd-symbols",
+                r#"
+[character]
+success_symbol = "[❯](bold green)"
+
+[git_branch]
+symbol = " "
+"#,
+            ),
+        ],
+    );
+
+    let output = cmd()
+        .env("PATH", &stub)
+        .args(["--preset", "base-theme", "--preset", "nerd-symbols"])
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+
+    let stdout = String::from_utf8(output).unwrap();
+    let cache_path = stdout.trim();
+
+    // Merged: nerd-symbols overrides base-theme
     let cached_toml = fs::read_to_string(cache_path).unwrap();
     insta::assert_snapshot!(cached_toml);
 }
