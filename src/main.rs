@@ -20,13 +20,11 @@ fn merge(base: &mut toml::Table, override_: &toml::Table) {
     }
 }
 
-fn expand_tilde(path: &str) -> PathBuf {
-    if path == "~" {
-        dirs::home_dir().unwrap_or_default()
-    } else if let Some(rest) = path.strip_prefix("~/") {
+fn expand_tilde(path: PathBuf) -> PathBuf {
+    if let Ok(rest) = path.strip_prefix("~") {
         dirs::home_dir().unwrap_or_default().join(rest)
     } else {
-        PathBuf::from(path)
+        path
     }
 }
 
@@ -42,20 +40,20 @@ fn exec_starship(config: Option<PathBuf>) -> Result<(), Box<dyn std::error::Erro
 }
 
 fn run() -> Result<(), Box<dyn std::error::Error>> {
-    let config_var = env::var("STARSHIP_CONFIG").unwrap_or_default();
+    let config_var = match env::var_os("STARSHIP_CONFIG") {
+        None => return exec_starship(None),
+        Some(v) if v.is_empty() => return exec_starship(None),
+        Some(v) => v,
+    };
 
-    if config_var.is_empty() {
-        return exec_starship(None);
-    }
-    if !config_var.contains(':') {
-        return exec_starship(Some(expand_tilde(&config_var)));
-    }
-
-    let paths: Vec<PathBuf> = config_var
-        .split(':')
-        .filter(|p| !p.is_empty())
+    let paths: Vec<PathBuf> = env::split_paths(&config_var)
+        .filter(|p| p.as_os_str() != "")
         .map(expand_tilde)
         .collect();
+
+    if paths.len() < 2 {
+        return exec_starship(paths.into_iter().next());
+    }
 
     let current_meta = paths
         .iter()
