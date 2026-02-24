@@ -19,6 +19,7 @@ strip = true
 
 [dependencies]
 dirs = "6.0.0"
+expand-tilde = "0.6.1"
 toml = "1"
 
 [dev-dependencies]

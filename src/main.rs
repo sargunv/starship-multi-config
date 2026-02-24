@@ -20,14 +20,6 @@ fn merge(base: &mut toml::Table, override_: &toml::Table) {
     }
 }
 
-fn expand_tilde(path: PathBuf) -> PathBuf {
-    if let Ok(rest) = path.strip_prefix("~") {
-        dirs::home_dir().unwrap_or_default().join(rest)
-    } else {
-        path
-    }
-}
-
 fn exec_starship(config: Option<PathBuf>) -> Result<(), Box<dyn std::error::Error>> {
     let bin = env::var("STARSHIP").unwrap_or_else(|_| "starship".into());
     let mut cmd = Command::new(&bin);
@@ -48,8 +40,8 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
 
     let paths: Vec<PathBuf> = env::split_paths(&config_var)
         .filter(|p| p.as_os_str() != "")
-        .map(expand_tilde)
-        .collect();
+        .map(expand_tilde::expand_tilde_owned)
+        .collect::<Result<_, _>>()?;
 
     if paths.len() < 2 {
         return exec_starship(paths.into_iter().next());
