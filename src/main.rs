@@ -1,8 +1,6 @@
 use std::{
     collections::hash_map::DefaultHasher,
-    env,
-    ffi::OsString,
-    fs,
+    env, fs,
     hash::{Hash, Hasher},
     os::unix::process::CommandExt,
     path::{Path, PathBuf},
@@ -17,20 +15,26 @@ fn main() {
 }
 
 fn run() -> Result<(), Box<dyn std::error::Error>> {
+    let bin = env::var_os("STARSHIP").unwrap_or_else(|| "starship".into());
+    let bin_path = which::which(&bin).map_err(|e| format!("{}: {e}", bin.to_string_lossy()))?;
+
     let preset_var = env::var("STARSHIP_PRESET").ok().filter(|v| !v.is_empty());
     let config_var = env::var_os("STARSHIP_CONFIG");
 
     // Fast path: no preset and no config (or empty) -> let starship use its default
     if preset_var.is_none() {
         match &config_var {
-            None => return exec_starship(None),
-            Some(v) if v.is_empty() => return exec_starship(None),
+            None => return exec_starship(&bin_path, None),
+            Some(v) if v.is_empty() => return exec_starship(&bin_path, None),
             _ => {}
         }
     }
 
     // Resolve preset config if STARSHIP_PRESET is set
-    let preset_path = preset_var.as_deref().map(resolve_preset).transpose()?;
+    let preset_path = preset_var
+        .as_deref()
+        .map(|name| resolve_preset(&bin_path, name))
+        .transpose()?;
 
     // Expand globs from STARSHIP_CONFIG, sort matches within each segment, and flatten
     let mut paths: Vec<PathBuf> = match &config_var {
@@ -60,11 +64,11 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
 
     if paths.is_empty() {
         // No matches and no preset: preserve original STARSHIP_CONFIG and let starship handle it
-        return exec_starship(config_var.map(PathBuf::from));
+        return exec_starship(&bin_path, config_var.map(PathBuf::from));
     }
     if paths.len() == 1 {
         // Single source: pass through as-is
-        return exec_starship(paths.into_iter().next());
+        return exec_starship(&bin_path, paths.into_iter().next());
     }
 
     // Hash paths + mtimes to derive a cache key that invalidates when any source changes
@@ -96,15 +100,13 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         write_cache(&cache_file, toml::to_string(&merged)?.as_bytes())?;
     }
 
-    exec_starship(Some(cache_file))
+    exec_starship(&bin_path, Some(cache_file))
 }
 
-fn resolve_preset(name: &str) -> Result<PathBuf, Box<dyn std::error::Error>> {
-    let bin = starship_bin();
-    let bin_path = which::which(&bin).map_err(|e| format!("{}: {e}", bin.to_string_lossy()))?;
-    let bin_mtime = fs::metadata(&bin_path)
+fn resolve_preset(bin_path: &Path, name: &str) -> Result<PathBuf, Box<dyn std::error::Error>> {
+    let bin_mtime = fs::metadata(bin_path)
         .and_then(|m| m.modified())
-        .map_err(|e| path_err(&bin_path, e))?;
+        .map_err(|e| path_err(bin_path, e))?;
 
     let hash = {
         let mut h = DefaultHasher::new();
@@ -117,7 +119,7 @@ fn resolve_preset(name: &str) -> Result<PathBuf, Box<dyn std::error::Error>> {
     let cache_file = cache_dir()?.join(format!("preset-{hash}.toml"));
 
     if !cache_file.exists() {
-        let output = Command::new(&bin_path)
+        let output = Command::new(bin_path)
             .args(["preset", name])
             .output()
             .map_err(|e| format!("{}: {e}", bin_path.display()))?;
@@ -131,10 +133,6 @@ fn resolve_preset(name: &str) -> Result<PathBuf, Box<dyn std::error::Error>> {
     }
 
     Ok(cache_file)
-}
-
-fn starship_bin() -> OsString {
-    env::var_os("STARSHIP").unwrap_or_else(|| "starship".into())
 }
 
 fn cache_dir() -> Result<PathBuf, Box<dyn std::error::Error>> {
@@ -152,9 +150,8 @@ fn write_cache(path: &Path, content: &[u8]) -> Result<(), Box<dyn std::error::Er
     Ok(())
 }
 
-fn exec_starship(config: Option<PathBuf>) -> Result<(), Box<dyn std::error::Error>> {
-    let bin = starship_bin();
-    let mut cmd = Command::new(&bin);
+fn exec_starship(bin: &Path, config: Option<PathBuf>) -> Result<(), Box<dyn std::error::Error>> {
+    let mut cmd = Command::new(bin);
     cmd.args(env::args_os().skip(1));
     match config {
         Some(path) => cmd.env("STARSHIP_CONFIG", path),
@@ -163,7 +160,7 @@ fn exec_starship(config: Option<PathBuf>) -> Result<(), Box<dyn std::error::Erro
     cmd.env_remove("STARSHIP_PRESET");
     cmd.env_remove("STARSHIP");
     let err = cmd.exec();
-    Err(format!("{}: {err}", bin.to_string_lossy()).into())
+    Err(format!("{}: {err}", bin.display()).into())
 }
 
 fn path_err(path: &std::path::Path, e: impl std::fmt::Display) -> String {
