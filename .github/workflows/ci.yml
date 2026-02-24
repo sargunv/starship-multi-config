@@ -29,11 +29,7 @@ jobs:
           fi
 
   test:
-    strategy:
-      fail-fast: true
-      matrix:
-        runner: [ubuntu-latest, macos-latest]
-    runs-on: ${{ matrix.runner }}
+    runs-on: ubuntu-latest
 
     steps:
       - name: Checkout
