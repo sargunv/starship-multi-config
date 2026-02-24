@@ -1,0 +1,44 @@
+[settings]
+experimental = true
+pin = true
+
+[hooks]
+postinstall = ["hk install --mise", "cargo fetch"]
+
+[tools]
+"cargo:cargo-edit" = "0.13.8"
+rust = "1.91.1"
+dprint = "0.51.1"
+hk = "1.36.0"
+pkl = "0.30.2"
+starship = "1.24.2"
+
+[tasks.build]
+run = ["cargo build"]
+
+[tasks."build:release"]
+run = ["cargo build --release"]
+
+[tasks.test]
+usage = '''
+arg "[name]" help="Test name filter"
+flag "--file <file>" help="Test file to run (e.g. alacritty, vscode)"
+'''
+run = 'cargo test ${usage_file:+--test "$usage_file"} ${usage_name:-}'
+
+[tasks."test:accept"]
+usage = '''
+arg "[name]" help="Test name filter"
+flag "--file <file>" help="Test file to run (e.g. alacritty, vscode)"
+'''
+run = 'INSTA_UPDATE=always cargo test ${usage_file:+--test "$usage_file"} ${usage_name:-}'
+
+[tasks.run]
+usage = 'arg "[args]" var=#true help="Arguments to pass to the CLI"'
+run = 'cargo run -- ${usage_args:-}'
+
+[tasks.check]
+run = ["hk check --all"]
+
+[tasks.fix]
+run = ["hk fix --all"]

@@ -1,0 +1,26 @@
+[package]
+name = "starship_multi_config"
+version = "0.0.0-dev"
+categories = ["command-line-utilities"]
+edition = "2024"
+keywords = ["terminal", "shell", "prompt"]
+license = "Unlicense"
+readme = "README.md"
+repository = "https://github.com/sargunv/starship-multi-config"
+description = "Wrapper for Starship that deep-merges multiple TOML configs"
+
+[[bin]]
+name = "starship-multi-config"
+path = "src/main.rs"
+
+[profile.release]
+lto = true
+strip = true
+
+[dependencies]
+toml = "1"
+
+[dev-dependencies]
+assert_cmd = "2"
+insta = "1"
+tempfile = "3"
