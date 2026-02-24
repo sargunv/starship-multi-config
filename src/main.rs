@@ -36,6 +36,9 @@ fn exec_starship(config: Option<PathBuf>) -> Result<(), Box<dyn std::error::Erro
 }
 
 fn run() -> Result<(), Box<dyn std::error::Error>> {
+    // Unset or empty: let starship use its default config
+    // Single path: pass through as-is
+    // Multiple paths: merge them
     let config_var = match env::var_os("STARSHIP_CONFIG") {
         None => return exec_starship(None),
         Some(v) if v.is_empty() => return exec_starship(None),
@@ -51,6 +54,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         return exec_starship(paths.into_iter().next());
     }
 
+    // Collect mtime metadata for each source file to check cache freshness
     let current_meta = paths
         .iter()
         .map(|p| {
@@ -69,6 +73,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         .collect::<Result<Vec<_>, String>>()?
         .join("\n");
 
+    // Derive cache file paths from a hash of the input paths
     let hash = format!("{:x}", {
         let mut h = DefaultHasher::new();
         paths.hash(&mut h);
@@ -81,6 +86,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     let cache_file = dir.join(format!("{hash}.toml"));
     let meta_file = dir.join(format!("{hash}.meta"));
 
+    // Re-merge only if source files have changed since last cached merge
     let cache_valid =
         fs::read_to_string(&meta_file).is_ok_and(|s| s == current_meta) && cache_file.exists();
 
@@ -94,6 +100,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
             merge(&mut merged, &table);
         }
 
+        // Write cache atomically via temp file + rename
         fs::create_dir_all(&dir)?;
         let tmp = dir.join(format!("{hash}.tmp"));
         fs::write(&tmp, toml::to_string(&merged)?)?;
