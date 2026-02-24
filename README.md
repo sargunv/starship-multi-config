@@ -13,6 +13,16 @@ Set `STARSHIP_CONFIG` to a colon-separated list of config paths:
 export STARSHIP_CONFIG="$HOME/.config/starship/base.toml:$HOME/.config/starship/overrides.toml"
 ```
 
+Glob patterns are supported, so you can use a `conf.d`-style directory:
+
+```bash
+export STARSHIP_CONFIG="$HOME/.config/starship/conf.d/*.toml"
+```
+
+Glob matches are sorted alphabetically within each segment, so you can control
+merge order with numeric prefixes (e.g. `01-base.toml`, `02-theme.toml`).
+Segments that match no files are silently ignored.
+
 Point your shell init at `starship-multi-config` instead of `starship`:
 
 ```zsh
@@ -39,7 +49,7 @@ Cache location: `$XDG_CACHE_HOME/starship-multi-config/` on Linux,
 
 | Variable          | Description                                           |
 | ----------------- | ----------------------------------------------------- |
-| `STARSHIP_CONFIG` | Colon-separated list of TOML config paths (input)     |
+| `STARSHIP_CONFIG` | Colon-separated list of TOML config paths or globs    |
 | `STARSHIP`        | Override the path to the `starship` binary (optional) |
 
 ## Installation

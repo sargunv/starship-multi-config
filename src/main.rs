@@ -24,13 +24,30 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         Some(v) => v,
     };
 
+    // Expand globs, sort matches within each segment, and flatten
     let paths: Vec<PathBuf> = env::split_paths(&config_var)
         .filter(|p| !p.as_os_str().is_empty())
         .map(expand_tilde::expand_tilde_owned)
-        .collect::<Result<_, _>>()?;
+        .collect::<Result<Vec<_>, _>>()?
+        .into_iter()
+        .flat_map(|p| {
+            let pattern = p.to_string_lossy();
+            let mut matches: Vec<PathBuf> = glob::glob(&pattern)
+                .into_iter()
+                .flatten()
+                .filter_map(Result::ok)
+                .collect();
+            matches.sort();
+            matches
+        })
+        .collect();
 
-    if paths.len() < 2 {
-        return exec_starship(paths.into_iter().next());
+    match paths.len() {
+        // No matches: preserve original value and let starship handle it
+        0 => return exec_starship(Some(config_var.into())),
+        // Single match: pass through as-is
+        1 => return exec_starship(paths.into_iter().next()),
+        _ => {}
     }
 
     // Hash paths + mtimes to derive a cache key that invalidates when any source changes

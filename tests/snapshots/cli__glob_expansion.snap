@@ -1,0 +1,13 @@
+---
+source: tests/cli.rs
+assertion_line: 158
+expression: cached_toml
+---
+format = "$all"
+
+[character]
+error_symbol = "[>](bold red)"
+success_symbol = "[→](bold cyan)"
+
+[package]
+disabled = true

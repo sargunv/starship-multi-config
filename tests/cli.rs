@@ -104,19 +104,74 @@ disabled = true
 }
 
 #[test]
-fn missing_file_error() {
+fn glob_expansion() {
     let dir = TempDir::new().unwrap();
     let stub = write_stub(&dir);
-    let f1 = write_toml(&dir, "exists.toml", "key = 1\n");
-    let missing = "/nonexistent/path.toml";
-    let config_var = format!("{f1}:{missing}");
+
+    let conf_dir = dir.path().join("conf.d");
+    fs::create_dir(&conf_dir).unwrap();
+
+    fs::write(
+        conf_dir.join("01-base.toml"),
+        r#"
+format = "$all"
+
+[character]
+success_symbol = "[>](bold green)"
+error_symbol = "[>](bold red)"
+"#,
+    )
+    .unwrap();
+
+    fs::write(
+        conf_dir.join("02-override.toml"),
+        r#"
+[character]
+success_symbol = "[→](bold cyan)"
+
+[package]
+disabled = true
+"#,
+    )
+    .unwrap();
+
+    let config_var = format!("{}/*.toml", conf_dir.display());
+
+    let output = cmd()
+        .env("STARSHIP", &stub)
+        .env("STARSHIP_CONFIG", &config_var)
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+
+    let stdout = String::from_utf8(output).unwrap();
+    let cache_path = stdout.trim().strip_prefix("STARSHIP_CONFIG=").unwrap();
+
+    assert!(
+        Path::new(cache_path).exists(),
+        "cache file should exist at {cache_path}"
+    );
+
+    let cached_toml = fs::read_to_string(cache_path).unwrap();
+    insta::assert_snapshot!(cached_toml);
+}
+
+#[test]
+fn glob_no_match_passthrough() {
+    let dir = TempDir::new().unwrap();
+    let stub = write_stub(&dir);
+
+    // Glob that matches nothing — original value is preserved for starship to handle
+    let config_var = format!("{}/nonexistent/*.toml", dir.path().display());
 
     cmd()
         .env("STARSHIP", &stub)
         .env("STARSHIP_CONFIG", &config_var)
         .assert()
-        .code(1)
-        .stderr(predicates::str::contains(missing));
+        .success()
+        .stdout(format!("STARSHIP_CONFIG={config_var}\n"));
 }
 
 #[test]
