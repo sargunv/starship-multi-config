@@ -1,10 +1,9 @@
 # starship-multi-config
 
-A tiny wrapper for [Starship](https://github.com/starship/starship) that
-deep-merges multiple TOML config files. Set `STARSHIP_CONFIG` to a
-colon-separated list of paths, and `starship-multi-config` will merge them
-(left-to-right, later files override) and hand the result to `starship`. Merged
-configs are cached and auto-invalidate when any source file changes.
+A tiny tool for [Starship](https://github.com/starship/starship) that
+deep-merges multiple TOML config files and prints the path to the merged result.
+Set `STARSHIP_CONFIG` to its output and use `starship` as normal. Merged configs
+are cached and auto-invalidate when any source file changes.
 
 ## Installation
 
@@ -34,38 +33,47 @@ path = "starship-multi-config"
 
 ## Usage
 
-Point your shell init at `starship-multi-config` instead of `starship`. All
-arguments pass through transparently:
+`starship-multi-config` takes config file paths as arguments, merges them
+left-to-right (later files override earlier ones), and prints the path to the
+merged config file. Use it to set `STARSHIP_CONFIG` before initializing
+Starship:
 
 ```zsh
-eval "$(starship-multi-config init zsh)"
+export STARSHIP_CONFIG="$(starship-multi-config ~/.config/starship/config.toml ~/.config/starship/conf.d/*.toml)"
+eval "$(starship init zsh)"
 ```
 
-Set `STARSHIP_CONFIG` to a colon-separated list of config paths:
+Use `--preset` to apply a [Starship preset](https://starship.rs/presets/) as the
+base layer. Your config files override the preset:
 
-```bash
-export STARSHIP_CONFIG="$HOME/.config/starship/base.toml:$HOME/.config/starship/overrides.toml"
+```zsh
+export STARSHIP_CONFIG="$(starship-multi-config --preset gruvbox-rainbow ~/.config/starship.toml)"
+eval "$(starship init zsh)"
 ```
 
-Glob patterns work too. Matches are sorted alphabetically, so you can control
-merge order with numeric prefixes (e.g. `01-base.toml`, `02-theme.toml`):
+## CLI reference
 
-```bash
-export STARSHIP_CONFIG="$HOME/.config/starship/conf.d/*.toml"
+```
+starship-multi-config [OPTIONS] [CONFIGS]...
 ```
 
-Set `STARSHIP_PRESET` to use a [Starship preset](https://starship.rs/presets/)
-as the base layer. Your config files override the preset:
+### Arguments
 
-```bash
-export STARSHIP_PRESET="gruvbox-rainbow"
-export STARSHIP_CONFIG="$HOME/.config/starship/overrides.toml"
-```
+| Argument     | Description                                                |
+| ------------ | ---------------------------------------------------------- |
+| `[CONFIGS]…` | TOML config files to merge (left-to-right, later override) |
 
-## Environment variables
+### Options
 
-| Variable          | Description                                          |
-| ----------------- | ---------------------------------------------------- |
-| `STARSHIP_CONFIG` | Colon-separated list of TOML config paths or globs   |
-| `STARSHIP_PRESET` | Starship preset name to use as the base config layer |
-| `STARSHIP`        | Override the path to the `starship` binary           |
+| Option              | Description                                          |
+| ------------------- | ---------------------------------------------------- |
+| `--preset <NAME>`   | Starship preset name to use as the base config layer |
+| `--starship <PATH>` | Override the path to the `starship` binary           |
+| `-h, --help`        | Print help                                           |
+| `-V, --version`     | Print version                                        |
+
+### Environment variables
+
+| Variable   | Description                                                       |
+| ---------- | ----------------------------------------------------------------- |
+| `STARSHIP` | Override the path to the `starship` binary (same as `--starship`) |

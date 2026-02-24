@@ -2,10 +2,33 @@ use std::{
     collections::hash_map::DefaultHasher,
     env, fs,
     hash::{Hash, Hasher},
-    os::unix::process::CommandExt,
     path::{Path, PathBuf},
     process::Command,
 };
+
+use clap::Parser;
+
+/// Merge multiple Starship TOML configs and print the path to the merged file.
+///
+/// Usage:
+///   export STARSHIP_CONFIG="$(starship-multi-config base.toml overrides.toml)"
+///   eval "$(starship init zsh)"
+#[derive(Parser)]
+#[command(version)]
+struct Cli {
+    /// Use a Starship preset as the base config layer.
+    /// Runs `starship preset <NAME>` to fetch the preset TOML.
+    #[arg(long)]
+    preset: Option<String>,
+
+    /// Override the path to the `starship` binary (used for resolving presets).
+    #[arg(long, env = "STARSHIP")]
+    starship: Option<PathBuf>,
+
+    /// TOML config files to merge (left-to-right, later files override).
+    #[arg(required_unless_present = "preset")]
+    configs: Vec<PathBuf>,
+}
 
 fn main() {
     if let Err(e) = run() {
@@ -15,56 +38,35 @@ fn main() {
 }
 
 fn run() -> Result<(), Box<dyn std::error::Error>> {
-    let bin = env::var_os("STARSHIP").unwrap_or_else(|| "starship".into());
-    let bin_path = which::which(&bin).map_err(|e| format!("{}: {e}", bin.to_string_lossy()))?;
+    let cli = Cli::parse();
 
-    let preset_var = env::var("STARSHIP_PRESET").ok().filter(|v| !v.is_empty());
-    let config_var = env::var_os("STARSHIP_CONFIG");
-
-    // Fast path: no preset and no config (or empty) -> let starship use its default
-    if preset_var.is_none() && config_var.as_ref().is_none_or(|v| v.is_empty()) {
-        return exec_starship(&bin_path, None);
-    }
-
-    // Resolve preset config if STARSHIP_PRESET is set
-    let preset_path = preset_var
+    // Resolve preset config if --preset is set
+    let preset_path = cli
+        .preset
         .as_deref()
-        .map(|name| resolve_preset(&bin_path, name))
+        .map(|name| {
+            let bin = resolve_starship_bin(cli.starship.as_deref())?;
+            resolve_preset(&bin, name)
+        })
         .transpose()?;
 
-    // Expand globs from STARSHIP_CONFIG, sort matches within each segment, and flatten
-    let mut paths: Vec<PathBuf> = match &config_var {
-        Some(v) if !v.is_empty() => {
-            let expanded = env::split_paths(v)
-                .filter(|p| !p.as_os_str().is_empty())
-                .map(expand_tilde::expand_tilde_owned)
-                .collect::<Result<Vec<_>, _>>()?;
-            let mut result = Vec::new();
-            for p in expanded {
-                let pattern = p.to_string_lossy();
-                let mut matches: Vec<PathBuf> = glob::glob(&pattern)?
-                    .collect::<Result<Vec<_>, _>>()
-                    .map_err(|e| path_err(e.path(), e.error()))?;
-                matches.sort();
-                result.extend(matches);
-            }
-            result
-        }
-        _ => vec![],
-    };
+    let mut paths: Vec<PathBuf> = Vec::new();
 
     // Prepend the preset as the base layer (user configs override it)
     if let Some(preset) = preset_path {
-        paths.insert(0, preset);
+        paths.push(preset);
     }
 
+    paths.extend(cli.configs);
+
     if paths.is_empty() {
-        // No matches and no preset: preserve original STARSHIP_CONFIG and let starship handle it
-        return exec_starship(&bin_path, config_var.map(PathBuf::from));
+        return Err("no config files specified".into());
     }
+
     if paths.len() == 1 {
-        // Single source: pass through as-is
-        return exec_starship(&bin_path, paths.into_iter().next());
+        // Single source: print its path directly
+        println!("{}", paths[0].display());
+        return Ok(());
     }
 
     // Hash paths + mtimes to derive a cache key that invalidates when any source changes
@@ -95,7 +97,20 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         write_cache(&cache_file, toml::to_string(&merged)?.as_bytes())?;
     }
 
-    exec_starship(&bin_path, Some(cache_file))
+    println!("{}", cache_file.display());
+    Ok(())
+}
+
+fn resolve_starship_bin(
+    override_path: Option<&Path>,
+) -> Result<PathBuf, Box<dyn std::error::Error>> {
+    match override_path {
+        Some(p) => Ok(p.to_path_buf()),
+        None => {
+            let bin = env::var_os("STARSHIP").unwrap_or_else(|| "starship".into());
+            which::which(&bin).map_err(|e| format!("{}: {e}", bin.to_string_lossy()).into())
+        }
+    }
 }
 
 fn resolve_preset(bin_path: &Path, name: &str) -> Result<PathBuf, Box<dyn std::error::Error>> {
@@ -142,19 +157,6 @@ fn write_cache(path: &Path, content: &[u8]) -> Result<(), Box<dyn std::error::Er
     fs::write(tmp.path(), content)?;
     tmp.persist(path)?;
     Ok(())
-}
-
-fn exec_starship(bin: &Path, config: Option<PathBuf>) -> Result<(), Box<dyn std::error::Error>> {
-    let mut cmd = Command::new(bin);
-    cmd.args(env::args_os().skip(1));
-    match config {
-        Some(path) => cmd.env("STARSHIP_CONFIG", path),
-        None => cmd.env_remove("STARSHIP_CONFIG"),
-    };
-    cmd.env_remove("STARSHIP_PRESET");
-    cmd.env_remove("STARSHIP");
-    let err = cmd.exec();
-    Err(format!("{}: {err}", bin.display()).into())
 }
 
 fn hash_key(
