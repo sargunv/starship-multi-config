@@ -20,8 +20,12 @@ fn merge(base: &mut toml::Table, override_: &toml::Table) {
     }
 }
 
+fn path_err(path: &std::path::Path, e: impl std::fmt::Display) -> String {
+    format!("{}: {e}", path.display())
+}
+
 fn exec_starship(config: Option<PathBuf>) -> Result<(), Box<dyn std::error::Error>> {
-    let bin = env::var("STARSHIP").unwrap_or_else(|_| "starship".into());
+    let bin = env::var("STARSHIP").unwrap_or_else(|_| "starship".to_string());
     let mut cmd = Command::new(&bin);
     cmd.args(env::args_os().skip(1));
     if let Some(path) = config {
@@ -39,7 +43,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     };
 
     let paths: Vec<PathBuf> = env::split_paths(&config_var)
-        .filter(|p| p.as_os_str() != "")
+        .filter(|p| !p.as_os_str().is_empty())
         .map(expand_tilde::expand_tilde_owned)
         .collect::<Result<_, _>>()?;
 
@@ -52,9 +56,9 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         .map(|p| {
             let dur = fs::metadata(p)
                 .and_then(|m| m.modified())
-                .map_err(|e| format!("{}: {e}", p.display()))?
+                .map_err(|e| path_err(p, e))?
                 .duration_since(SystemTime::UNIX_EPOCH)
-                .map_err(|e| format!("{}: {e}", p.display()))?;
+                .map_err(|e| path_err(p, e))?;
             Ok(format!(
                 "{}.{} {}",
                 dur.as_secs(),
@@ -65,11 +69,11 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         .collect::<Result<Vec<_>, String>>()?
         .join("\n");
 
-    let mut hasher = DefaultHasher::new();
-    for path in &paths {
-        path.hash(&mut hasher);
-    }
-    let hash = format!("{:x}", hasher.finish());
+    let hash = format!("{:x}", {
+        let mut h = DefaultHasher::new();
+        paths.hash(&mut h);
+        h.finish()
+    });
 
     let dir = dirs::cache_dir()
         .ok_or("could not determine cache directory")?
@@ -83,11 +87,10 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     if !cache_valid {
         let mut merged = toml::Table::new();
         for path in &paths {
-            let content =
-                fs::read_to_string(path).map_err(|e| format!("{}: {e}", path.display()))?;
-            let table: toml::Table = content
-                .parse()
-                .map_err(|e| format!("{}: {e}", path.display()))?;
+            let content = fs::read_to_string(path).map_err(|e| path_err(path, e))?;
+            let table = content
+                .parse::<toml::Table>()
+                .map_err(|e| path_err(path, e))?;
             merge(&mut merged, &table);
         }
 
