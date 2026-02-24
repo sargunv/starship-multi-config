@@ -8,31 +8,11 @@ use std::{
     time::SystemTime,
 };
 
-fn merge(base: &mut toml::Table, override_: &toml::Table) {
-    for (key, override_val) in override_ {
-        if let (Some(toml::Value::Table(b)), toml::Value::Table(o)) =
-            (base.get_mut(key), override_val)
-        {
-            merge(b, o);
-        } else {
-            base.insert(key.clone(), override_val.clone());
-        }
+fn main() {
+    if let Err(e) = run() {
+        eprintln!("starship-multi-config: {e}");
+        std::process::exit(1);
     }
-}
-
-fn path_err(path: &std::path::Path, e: impl std::fmt::Display) -> String {
-    format!("{}: {e}", path.display())
-}
-
-fn exec_starship(config: Option<PathBuf>) -> Result<(), Box<dyn std::error::Error>> {
-    let bin = env::var("STARSHIP").unwrap_or_else(|_| "starship".to_string());
-    let mut cmd = Command::new(&bin);
-    cmd.args(env::args_os().skip(1));
-    if let Some(path) = config {
-        cmd.env("STARSHIP_CONFIG", path);
-    }
-    let err = cmd.exec();
-    Err(format!("exec {bin}: {err}").into())
 }
 
 fn run() -> Result<(), Box<dyn std::error::Error>> {
@@ -111,9 +91,29 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     exec_starship(Some(cache_file))
 }
 
-fn main() {
-    if let Err(e) = run() {
-        eprintln!("starship-multi-config: {e}");
-        std::process::exit(1);
+fn exec_starship(config: Option<PathBuf>) -> Result<(), Box<dyn std::error::Error>> {
+    let bin = env::var("STARSHIP").unwrap_or_else(|_| "starship".to_string());
+    let mut cmd = Command::new(&bin);
+    cmd.args(env::args_os().skip(1));
+    if let Some(path) = config {
+        cmd.env("STARSHIP_CONFIG", path);
+    }
+    let err = cmd.exec();
+    Err(format!("exec {bin}: {err}").into())
+}
+
+fn path_err(path: &std::path::Path, e: impl std::fmt::Display) -> String {
+    format!("{}: {e}", path.display())
+}
+
+fn merge(base: &mut toml::Table, override_: &toml::Table) {
+    for (key, override_val) in override_ {
+        if let (Some(toml::Value::Table(b)), toml::Value::Table(o)) =
+            (base.get_mut(key), override_val)
+        {
+            merge(b, o);
+        } else {
+            base.insert(key.clone(), override_val.clone());
+        }
     }
 }
