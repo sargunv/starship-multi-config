@@ -22,19 +22,12 @@ fn merge(base: &mut toml::Table, override_: &toml::Table) {
 
 fn expand_tilde(path: &str) -> PathBuf {
     if path == "~" {
-        PathBuf::from(env::var("HOME").unwrap_or_default())
+        dirs::home_dir().unwrap_or_default()
     } else if let Some(rest) = path.strip_prefix("~/") {
-        PathBuf::from(env::var("HOME").unwrap_or_default()).join(rest)
+        dirs::home_dir().unwrap_or_default().join(rest)
     } else {
         PathBuf::from(path)
     }
-}
-
-fn cache_dir() -> PathBuf {
-    env::var("XDG_CACHE_HOME")
-        .map(PathBuf::from)
-        .unwrap_or_else(|_| PathBuf::from(env::var("HOME").unwrap_or_default()).join(".cache"))
-        .join("starship-multi-config")
 }
 
 fn exec_starship(config: Option<PathBuf>) -> Result<(), Box<dyn std::error::Error>> {
@@ -88,7 +81,9 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     }
     let hash = format!("{:x}", hasher.finish());
 
-    let dir = cache_dir();
+    let dir = dirs::cache_dir()
+        .ok_or("could not determine cache directory")?
+        .join("starship-multi-config");
     let cache_file = dir.join(format!("{hash}.toml"));
     let meta_file = dir.join(format!("{hash}.meta"));
 

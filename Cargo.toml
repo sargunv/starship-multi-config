@@ -18,6 +18,7 @@ lto = true
 strip = true
 
 [dependencies]
+dirs = "6.0.0"
 toml = "1"
 
 [dev-dependencies]
