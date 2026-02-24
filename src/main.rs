@@ -22,12 +22,8 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     let config_var = env::var_os("STARSHIP_CONFIG");
 
     // Fast path: no preset and no config (or empty) -> let starship use its default
-    if preset_var.is_none() {
-        match &config_var {
-            None => return exec_starship(&bin_path, None),
-            Some(v) if v.is_empty() => return exec_starship(&bin_path, None),
-            _ => {}
-        }
+    if preset_var.is_none() && config_var.as_ref().is_none_or(|v| v.is_empty()) {
+        return exec_starship(&bin_path, None);
     }
 
     // Resolve preset config if STARSHIP_PRESET is set
@@ -72,17 +68,16 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     // Hash paths + mtimes to derive a cache key that invalidates when any source changes
-    let hash = {
-        let mut h = DefaultHasher::new();
+    let hash = hash_key(|h| {
         for p in &paths {
-            p.hash(&mut h);
+            p.hash(h);
             let mtime = fs::metadata(p)
                 .and_then(|m| m.modified())
                 .map_err(|e| path_err(p, e))?;
-            mtime.hash(&mut h);
+            mtime.hash(h);
         }
-        format!("{:x}", h.finish())
-    };
+        Ok(())
+    })?;
 
     let cache_file = cache_dir()?.join(format!("{hash}.toml"));
 
@@ -108,13 +103,12 @@ fn resolve_preset(bin_path: &Path, name: &str) -> Result<PathBuf, Box<dyn std::e
         .and_then(|m| m.modified())
         .map_err(|e| path_err(bin_path, e))?;
 
-    let hash = {
-        let mut h = DefaultHasher::new();
-        name.hash(&mut h);
-        bin_path.hash(&mut h);
-        bin_mtime.hash(&mut h);
-        format!("{:x}", h.finish())
-    };
+    let hash = hash_key(|h| {
+        name.hash(h);
+        bin_path.hash(h);
+        bin_mtime.hash(h);
+        Ok(())
+    })?;
 
     let cache_file = cache_dir()?.join(format!("preset-{hash}.toml"));
 
@@ -163,7 +157,15 @@ fn exec_starship(bin: &Path, config: Option<PathBuf>) -> Result<(), Box<dyn std:
     Err(format!("{}: {err}", bin.display()).into())
 }
 
-fn path_err(path: &std::path::Path, e: impl std::fmt::Display) -> String {
+fn hash_key(
+    f: impl FnOnce(&mut DefaultHasher) -> Result<(), Box<dyn std::error::Error>>,
+) -> Result<String, Box<dyn std::error::Error>> {
+    let mut h = DefaultHasher::new();
+    f(&mut h)?;
+    Ok(format!("{:x}", h.finish()))
+}
+
+fn path_err(path: &Path, e: impl std::fmt::Display) -> String {
     format!("{}: {e}", path.display())
 }
 
