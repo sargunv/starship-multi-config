@@ -1,0 +1,6 @@
+---
+source: src/main.rs
+expression: merged
+---
+[palettes.base]
+colors = ["cyan", "magenta"]

@@ -1,0 +1,17 @@
+---
+source: src/main.rs
+expression: merged
+---
+format = "$git_branch$character"
+
+[character]
+error_symbol = "[>](bold red)"
+success_symbol = "[→](bold cyan)"
+vimcmd_symbol = "[←](bold cyan)"
+
+[git_branch]
+format = "[$branch]($style) "
+style = "bold purple"
+
+[package]
+disabled = true

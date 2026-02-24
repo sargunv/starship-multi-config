@@ -98,3 +98,60 @@ fn merge(base: &mut toml::Table, override_: &toml::Table) {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn merge_toml(base: &str, override_: &str) -> String {
+        let mut base = base.parse::<toml::Table>().unwrap();
+        let override_ = override_.parse::<toml::Table>().unwrap();
+        merge(&mut base, &override_);
+        toml::to_string(&base).unwrap()
+    }
+
+    #[test]
+    fn nested_table_merge_with_scalar_override() {
+        let base = r#"
+format = "$all"
+
+[character]
+success_symbol = "[>](bold green)"
+error_symbol = "[>](bold red)"
+
+[git_branch]
+format = "[$branch]($style) "
+style = "bold purple"
+"#;
+
+        let override_ = r#"
+format = "$git_branch$character"
+
+[character]
+success_symbol = "[→](bold cyan)"
+vimcmd_symbol = "[←](bold cyan)"
+
+[package]
+disabled = true
+"#;
+
+        let merged = merge_toml(base, override_);
+        insta::assert_snapshot!(merged);
+    }
+
+    #[test]
+    fn array_replacement() {
+        let base = r#"
+[palettes.base]
+colors = ["red", "green", "blue"]
+"#;
+
+        let override_ = r#"
+[palettes.base]
+colors = ["cyan", "magenta"]
+"#;
+
+        let merged = merge_toml(base, override_);
+        insta::assert_snapshot!(merged);
+    }
+}
